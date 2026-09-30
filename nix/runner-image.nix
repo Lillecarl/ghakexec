@@ -78,10 +78,12 @@ in
     name="''${GHAKEXEC_NAME:-${runnerName}}"
     command_line="init=${config.system.build.toplevel}/init ${toString config.boot.kernelParams} ghakexec.token=$GHAKEXEC_TOKEN ghakexec.url=$GHAKEXEC_URL ghakexec.name=$name"
     command -v kexec >/dev/null || { echo "kexec not found" >&2; exit 1; }
+    kexec_cmd=kexec
+    [ "$(id -u)" -eq 0 ] || kexec_cmd="sudo kexec"
     # kexec_file_load verifies signatures and rejects this unsigned kernel, so
     # load with the legacy kexec_load syscall instead.
-    kexec --load "$dir/bzImage" --kexec-syscall --initrd="$dir/initrd.gz" --no-checks \
+    $kexec_cmd --load "$dir/bzImage" --kexec-syscall --initrd="$dir/initrd.gz" --no-checks \
       --command-line "$command_line"
-    kexec -e
+    $kexec_cmd -e
   '';
 }
