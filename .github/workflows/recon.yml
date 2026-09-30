@@ -1,0 +1,71 @@
+name: recon
+
+on:
+  workflow_dispatch:
+    inputs:
+      do_kexec:
+        description: "Actually run kexec -e (the runner kernel switches; the agent dies)"
+        type: boolean
+        default: false
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Environment and kernel posture
+        run: |
+          set -x
+          uname -a
+          id
+          sudo id
+          cat /proc/cmdline
+          systemd-detect-virt || true
+
+          echo "--- firmware ---"
+          if [ -d /sys/firmware/efi ]; then echo "EFI"; else echo "BIOS"; fi
+          mokutil --sb-state 2>&1 || true
+
+          echo "--- kvm ---"
+          ls -l /dev/kvm 2>&1 || echo "no /dev/kvm"
+
+          echo "--- lockdown ---"
+          cat /sys/kernel/security/lockdown 2>&1 || echo "no lockdown LSM node"
+
+          echo "--- kexec_load_disabled ---"
+          cat /proc/sys/kernel/kexec_load_disabled 2>&1 || true
+
+          echo "--- kernel config ---"
+          cfg=""
+          [ -r "/boot/config-$(uname -r)" ] && cfg="/boot/config-$(uname -r)"
+          [ -r /proc/config.gz ] && cfg="gz"
+          if [ "$cfg" = "gz" ]; then
+            zcat /proc/config.gz | grep -E 'CONFIG_KEXEC|CONFIG_LOCK_DOWN|CONFIG_SECURITY_LOCKDOWN|CONFIG_KEXEC_SIG' || true
+          elif [ -n "$cfg" ]; then
+            grep -E 'CONFIG_KEXEC|CONFIG_LOCK_DOWN|CONFIG_SECURITY_LOCKDOWN|CONFIG_KEXEC_SIG' "$cfg" || true
+          else
+            echo "no kernel config readable"
+          fi
+
+          echo "--- dmesg ---"
+          sudo dmesg 2>/dev/null | grep -iE 'lockdown|secure boot|efi:' | head -40 || true
+
+      - name: Install kexec-tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq kexec-tools
+
+      - name: kexec load test (does not reboot)
+        run: |
+          set -x
+          k="/boot/vmlinuz-$(uname -r)"
+          i="/boot/initrd.img-$(uname -r)"
+          ls -l "$k" "$i" || true
+          sudo kexec -l "$k" --initrd="$i" --command-line="$(cat /proc/cmdline)"
+          echo "kexec -l exit=$?"
+
+      - name: kexec execute
+        if: ${{ inputs.do_kexec }}
+        run: sudo kexec -e
