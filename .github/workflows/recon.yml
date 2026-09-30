@@ -7,7 +7,6 @@ on:
         description: "Actually run kexec -e (the runner kernel switches; the agent dies)"
         type: boolean
         default: false
-  push:
 
 permissions:
   contents: read
