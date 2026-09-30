@@ -1,0 +1,21 @@
+name: nixos-run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hello:
+    runs-on: [self-hosted, nixos-kexec]
+    timeout-minutes: 30
+    steps:
+      - name: Prove the kernel and the OS
+        run: |
+          set -x
+          uname -a
+          cat /etc/os-release
+          nixos-version || true
+          id
+          echo "hello from in-memory NixOS, reached by kexec on a GitHub-hosted runner"

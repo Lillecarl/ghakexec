@@ -1,0 +1,42 @@
+name: kexec-boot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Build the in-memory NixOS kexec image
+        run: nix build .#kexec --print-build-logs
+
+      - name: Mint a runner registration token
+        env:
+          GH_TOKEN: ${{ secrets.GHAKEXEC_PAT }}
+        run: |
+          set -euo pipefail
+          token=$(gh api -X POST "repos/${{ github.repository }}/actions/runners/registration-token" --jq .token)
+          echo "::add-mask::$token"
+          printf 'RUNNER_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
+
+      - name: Install kexec-tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq kexec-tools
+
+      - name: kexec into NixOS (the runner agent dies here)
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/kexec"
+          cp -L result/* "$RUNNER_TEMP/kexec/"
+          chmod +x "$RUNNER_TEMP/kexec/run"
+          GHAKEXEC_TOKEN="$RUNNER_TOKEN" \
+          GHAKEXEC_URL="${{ github.server_url }}/${{ github.repository }}" \
+          GHAKEXEC_NAME="nixos-kexec-${{ github.run_id }}" \
+          "$RUNNER_TEMP/kexec/run"
