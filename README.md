@@ -75,13 +75,52 @@ and takes new jobs.
    `nixos-anywhere` and the `nixos-images` kexec installer boot NixOS on a running
    Linux host this way.
 
+## It works: the kexec'd NixOS completes a real run
+
+On 2026-09-30 a hosted runner kexec'd into an in-memory NixOS, which started the
+real GitHub runner agent, picked up a queued job, and completed it green.
+
+Run: <https://github.com/Lillecarl/ghakexec/actions/runs/36779212908>
+
+The job printed:
+
+```
+Linux nixos-kexec 6.18.54 #1-NixOS SMP PREEMPT_DYNAMIC ... x86_64 GNU/Linux
+PRETTY_NAME="NixOS 26.11 (Zokor)"
+```
+
+How it is built:
+
+- `.github/workflows/kexec-boot.yml` builds `packages.x86_64-linux.kexec` (a
+  NixOS netboot image), mints a runner registration token, and kexecs.
+- `nix/runner-image.nix` boots NixOS with DHCP and a systemd unit that reads the
+  token from the kernel command line and runs `Runner.Listener`.
+- `.github/workflows/nixos-run.yml` is queued on `self-hosted, nixos-kexec` and
+  runs once that runner comes online.
+
+Two traps cost a run each:
+
+- `kexec_file_load` verifies the kernel signature and rejects an unsigned NixOS
+  kernel with `EPERM`. Load with the legacy `kexec_load` syscall
+  (`kexec --kexec-syscall`), which does not check signatures.
+- A job step runs as the unprivileged `runner` user. The kexec run script must
+  call `sudo`, or both syscalls return `EPERM`.
+
+The same job cannot go green: after `kexec -e` the hosted agent is gone, and no
+API sets a job conclusion. The kexec-boot run above ends as a cancelled run. The
+green run is a separate job that the new NixOS runner takes.
+
 ## Reproduce
 
 `.github/workflows/recon.yml` is manual-dispatch only. It reports the environment
 and runs `kexec -l` (load only, no reboot). A boolean input enables `kexec -e`.
 
+The self-hosted demonstration is manual-dispatch only too. Dispatch `nixos-run`
+first (it queues), then `kexec-boot`. It needs a `GHAKEXEC_PAT` repository secret
+with permission to mint a runner registration token.
+
 ## Scope
 
-One measurement, on one runner image. The point is the capability, not volume.
-kexec of a foreign kernel on a hosted runner sits in GitHub's "nested
+A handful of measurements, on one runner image. The point is the capability, not
+volume. kexec of a foreign kernel on a hosted runner sits in GitHub's "nested
 virtualization is experimental, at your own risk" territory.
